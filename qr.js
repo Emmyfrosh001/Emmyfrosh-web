@@ -1,0 +1,521 @@
+import express from "express";
+import fs from "fs";
+import pino from "pino";
+import crypto from "crypto";
+import QRCode from "qrcode"; // npm install qrcode
+import AdmZip from "adm-zip"; // npm install adm-zip
+import {
+    makeWASocket,
+    useMultiFileAuthState,
+    delay,
+    makeCacheableSignalKeyStore,
+    Browsers,
+    jidNormalizedUser,
+    fetchLatestBaileysVersion,
+    DisconnectReason,
+} from "@whiskeysockets/baileys";
+import pn from "awesome-phonenumber";
+import { sendWithBanner } from "./sendBanner.js";
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const router = express.Router();
+
+const API_PASSWORD = process.env.API_PASSWORD || "passcode2026";
+const SESSION_PREFIX = "Emmy-Frosh-AI:~";
+const BACKUPS_DIR = join(__dirname, "backups");
+const BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h — zips older than this get swept
+
+function ensureBackupsDir() {
+    if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+}
+
+// ✅ FIX: this used to base64-encode the ENTIRE creds.json and hand that
+// whole blob back as the "session ID" — index.js's restore logic
+// (restoreSessionFromServerZip) was ALREADY written expecting a short
+// 32-hex-char ID that it looks up via GET /code/restore?id=..., but
+// nothing here ever actually stored a backup server-side or served that
+// route. This zips the whole session folder, saves it under a random
+// 32-hex-char ID in BACKUPS_DIR, and returns just that short ID — which
+// is what index.js can actually consume.
+function createSessionBackup(sessionDir) {
+    ensureBackupsDir();
+    const backupId = crypto.randomBytes(16).toString("hex"); // 32 hex chars
+    const zip = new AdmZip();
+    zip.addLocalFolder(sessionDir);
+    zip.writeZip(join(BACKUPS_DIR, `${backupId}.zip`));
+    return backupId;
+}
+
+async function generateShortSession(sessionDir) {
+    try {
+        const backupId = createSessionBackup(sessionDir);
+        return { sessionId: `${SESSION_PREFIX}${backupId}` };
+    } catch (error) {
+        console.error("Error generating short session:", error);
+        return null;
+    }
+}
+
+// Periodic sweep so old backup zips don't accumulate forever on disk —
+// same pattern as index.js's tmp-folder cleanup.
+setInterval(() => {
+    try {
+        if (!fs.existsSync(BACKUPS_DIR)) return;
+        const now = Date.now();
+        for (const file of fs.readdirSync(BACKUPS_DIR)) {
+            const fp = join(BACKUPS_DIR, file);
+            try {
+                if (now - fs.statSync(fp).mtimeMs > BACKUP_MAX_AGE_MS) fs.rmSync(fp, { force: true });
+            } catch {}
+        }
+    } catch {}
+}, 60 * 60 * 1000); // hourly
+
+/* ===== HELPERS ===== */
+function rm(p) {
+    try {
+        if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+    } catch (e) {
+        console.log("Cleanup error:", e);
+    }
+}
+
+// ✅ FIX: replaces every `process.exit()` call that used to run after a
+// pairing finished (success OR failure). process.exit() kills the ENTIRE
+// Node process — but this router is mounted inside index.js's Express
+// app, so they share one process. Every successful (or failed) pairing
+// was silently taking the whole site down with it, which is why the
+// site "went off" every single time someone paired, on both the phone
+// and the QR flow. This just closes the one WhatsApp socket for this
+// pairing attempt instead, leaving the server (and everyone else's
+// ability to pair) untouched.
+function closeSocket(sock) {
+    try {
+        sock?.ws?.close();
+    } catch (e) {
+        console.error("[SESSION] Error closing socket:", e.message);
+    }
+}
+
+/* ===== SHARED: send session + bot-info messages once connected =====
+   Used by BOTH the pair-code flow and the QR flow, so the fix only has
+   to live in one place. Always resolves the JID from sock.user.id (the
+   account Baileys actually confirms you're logged in as) instead of
+   rebuilding it from a phone number — this is what was silently sending
+   your session to the wrong/mismatched JID before, regardless of whether
+   you connected via pairing code or QR scan.
+*/
+async function deliverSession(sock, dir) {
+    // Give the socket time to finish registering keys before sending —
+    // sending too soon after "open" can silently drop the message.
+    await delay(3000);
+
+    const sessionInfo = await generateShortSession(dir);
+    if (!sessionInfo) {
+        throw new Error("Failed to generate session");
+    }
+
+    const jid = jidNormalizedUser(sock.user.id);
+    console.log("[SESSION] Sending session to JID:", jid);
+
+    const sendResult = await sock.sendMessage(jid, { text: sessionInfo.sessionId });
+    console.log("[SESSION] Session message send result:", sendResult?.key?.id || sendResult);
+
+    await delay(1000);
+
+    const fakeVCardQuoted = {
+        key: {
+            fromMe: false,
+            participant: "0@s.whatsapp.net",
+            remoteJid: "status@broadcast"
+        },
+        message: {
+            contactMessage: {
+                displayName: "© EMMYFROSH-AI",
+                vcard: `BEGIN:VCARD
+VERSION:3.0
+FN:© EMMYFROSH-AI
+ORG:EmmyFrosh-AI Official;
+TEL;type=CELL;type=VOICE;waid=13135550002:+13135550002
+END:VCARD`
+            }
+        }
+    };
+
+    // ✅ Old info-caption message removed — the session ID (above) and
+    // this Next Steps message are sent now. This message is sent as an
+    // image (hosted, not read from local disk — no dependency on assets/
+    // existing on whatever Railway/host container happens to be running
+    // this) with the caption below, marked as forwarded from the channel
+    // so it carries the "forwarded many times" tag WhatsApp shows on
+    // real channel broadcasts.
+    const CHANNEL_JID = "0029Vb7IMwt3wtbAKXyJxR1g@newsletter";
+
+    const nextStepsText = `╭━「 🚀 *NEXT STEPS* 」━╮
+┃
+┃ 1️⃣ ✅ Join *Group & Channel*
+┃ 2️⃣ 🎥 Get deployment tutorials in the group 
+┃ 3️⃣ 🛠️ Get direct deployment help
+┃
+┃ 📢 *CHANNEL:*
+┃ https://whatsapp.com/channel/0029Vb7IMwt3wtbAKXyJxR1g
+┃
+┃ 👥 *GROUP:*
+┃ https://chat.whatsapp.com/FUReIHkwRYm5U9tQ2PIxc7?mode=gi_t
+╰━━━━━━━━━━━━━━━━━━╯`;
+
+    try {
+        // ✅ FIX: see pair.js — removed the spoofed forwardedNewsletterMessageInfo
+        // and fake quoted vcard. iOS's WhatsApp client validates that fake
+        // "forwarded from channel" reference more strictly than Android and
+        // was silently failing to render this message at all.
+        const nextStepsResult = await sendWithBanner(sock, jid, nextStepsText, {
+            contextInfo: { mentionedJid: [jid], isForwarded: true }
+        });
+        console.log("[SESSION] Next-steps message send result:", nextStepsResult?.key?.id || nextStepsResult);
+    } catch (e) {
+        // ✅ FIX: see pair.js — same silent-failure risk here (dead image
+        // URL or WhatsApp filtering the spoofed forwarded-channel style).
+        // Fall back to plain text so the info always arrives.
+        console.error("[SESSION] Failed to send styled next-steps message, falling back to plain text:", e.message);
+        try {
+            await sock.sendMessage(jid, { text: nextStepsText });
+        } catch (e2) {
+            console.error("[SESSION] Plain-text fallback also failed:", e2.message);
+        }
+    }
+
+    // Give both sends real time to round-trip before the caller tears
+    // the socket/process down.
+    await delay(2000);
+}
+
+/* ===== RESTORE ROUTE: GET /restore =====
+   Serves back the zipped session folder for a given 32-hex-char backup
+   ID, exactly matching what index.js's restoreSessionFromServerZip()
+   already calls: GET {pairSite}/code/restore?id=<32-hex-chars>, with a
+   Bearer token equal to API_PASSWORD. Mount this router at "/code" in
+   your main app (app.use("/code", pairRouter)) so this resolves to the
+   /code/restore path index.js expects.
+*/
+router.get("/restore", (req, res) => {
+    const auth = req.headers.authorization || "";
+    if (auth !== `Bearer ${API_PASSWORD}`) {
+        return res.status(401).send({ code: "Unauthorized" });
+    }
+
+    const id = String(req.query.id || "");
+    if (!/^[a-f0-9]{32}$/i.test(id)) {
+        return res.status(400).send({ code: "Invalid id" });
+    }
+
+    const zipPath = join(BACKUPS_DIR, `${id}.zip`);
+    if (!fs.existsSync(zipPath)) {
+        return res.status(404).send({ code: "Session ID expired or not found" });
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${id}.zip"`);
+    fs.createReadStream(zipPath).pipe(res);
+});
+
+/* ===== LEGACY/UNUSED: phone-number pair-code route =====
+   Duplicate of pair.js's own "/" route (mounted at /pair, which is what
+   pair.html actually calls for phone-number pairing). Moved off "/" here
+   so it stops shadowing the QR-generation route below — this router is
+   mounted at /qr, and pair.html's frontend calls plain GET /qr expecting
+   the QR flow, not this. Left in place (renamed) rather than deleted in
+   case anything else depends on it.
+*/
+router.get("/phone", async (req, res) => {
+    let num = (req.query.number || "").replace(/[^0-9]/g, "");
+    if (!num) return res.status(400).send({ code: "Number required" });
+
+    const phone = pn("+" + num);
+    if (!phone.isValid()) return res.status(400).send({ code: "Invalid number" });
+    num = phone.getNumber("e164").replace("+", "");
+
+    const dir = "./session" + num;
+    rm(dir);
+
+    async function start() {
+        const { state, saveCreds } = await useMultiFileAuthState(dir);
+        const { version } = await fetchLatestBaileysVersion();
+
+        const sock = makeWASocket({
+            version,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
+            },
+            // Bumped from "fatal" so send failures show up in your console.
+            // Drop back to "fatal"/"silent" once delivery is confirmed working.
+            logger: pino({ level: "warn" }),
+            browser: Browsers.windows("Chrome"),
+            printQRInTerminal: false,
+            markOnlineOnConnect: false,
+        });
+
+        sock.ev.on("creds.update", saveCreds);
+
+        sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
+            if (connection === "open") {
+                try {
+                    await deliverSession(sock, dir);
+                    rm(dir);
+                    // ✅ FIX: was process.exit(0) — that killed the whole
+                    // site, not just this pairing. Close only this socket.
+                    setTimeout(() => closeSocket(sock), 1000);
+                } catch (err) {
+                    console.error("❌ Error in pairing process:", err);
+                    rm(dir);
+                    try {
+                        const jid = jidNormalizedUser(sock.user?.id || (num + "@s.whatsapp.net"));
+                        await sock.sendMessage(jid, { text: "❌ Error generating session. Please try again." });
+                    } catch (e) {
+                        console.error("[SESSION] Failed to even send the error notice:", e);
+                    }
+                    // ✅ FIX: was process.exit(1) — same problem, error path.
+                    closeSocket(sock);
+                }
+            }
+
+            if (connection === "close") {
+                const c = lastDisconnect?.error?.output?.statusCode;
+                console.log("[SESSION] Connection closed, statusCode:", c);
+                if (c !== 401) {
+                    setTimeout(() => start(), 2000);
+                }
+            }
+        });
+
+        if (!sock.authState.creds.registered) {
+            await delay(3000);
+            try {
+                let code = await sock.requestPairingCode(num);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                if (!res.headersSent) {
+                    res.send({
+                        success: true,
+                        code: code,
+                        message: "Scan QR code or use pairing code to connect"
+                    });
+                }
+            } catch (err) {
+                console.error("Pairing error:", err);
+                if (!res.headersSent) {
+                    res.status(503).send({ code: "PAIR_FAIL", error: err.message });
+                }
+                rm(dir);
+                // ✅ FIX: was process.exit(1) — ran on every failed
+                // pairing-code request (e.g. bad number), taking the whole
+                // site down each time. Just close this one socket attempt.
+                closeSocket(sock);
+            }
+        }
+    }
+
+    start();
+});
+
+/* ===== QR ROUTES =====
+   GET /qr          -> starts a QR session, returns { key, qr, instructions }
+   GET /qr/status   -> ?key=...  returns { status, qr } — the page polls this,
+                       because WhatsApp rotates the QR code every ~20 seconds
+                       and an old one can no longer be scanned.
+   GET /qr/cancel   -> ?key=...  stops that QR session.
+
+   status: waiting | connected | done | error | expired
+
+   ✅ WHY THE OLD QR NEVER LINKED: WhatsApp always closes the connection
+   right after a successful scan (status 515 "restart required") and you
+   have to open a NEW socket with the saved credentials to finish linking.
+   The old code only reconnected while it had not yet answered the request
+   (`!responded`), so after the first QR was sent it never reconnected —
+   the scan "worked" on the phone but the session was never completed.
+   It also only ever returned the FIRST QR, which has expired by the time
+   most people scan it.
+*/
+const QR_LIFETIME_MS = 3 * 60 * 1000; // give up on an unscanned QR session after 3 min
+const QR_MAX_RESTARTS = 8;
+const qrSessions = new Map();
+
+function destroyQrSession(key, finalStatus) {
+    const sess = qrSessions.get(key);
+    if (!sess) return;
+    if (finalStatus && sess.status !== "done") sess.status = finalStatus;
+    sess.finished = true;
+    clearTimeout(sess.lifeTimer);
+    closeSocket(sess.sock);
+    rm(sess.dir);
+    // keep the final status around briefly so the page can read it
+    setTimeout(() => qrSessions.delete(key), 2 * 60 * 1000);
+}
+
+async function startQrSocket(key) {
+    const sess = qrSessions.get(key);
+    if (!sess || sess.finished) return;
+
+    const { state, saveCreds } = await useMultiFileAuthState(sess.dir);
+
+    let version;
+    try {
+        ({ version } = await fetchLatestBaileysVersion());
+    } catch (e) {
+        console.error("[QR] Could not fetch latest WhatsApp version, using Baileys default:", e.message);
+    }
+
+    const sock = makeWASocket({
+        ...(version ? { version } : {}),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
+        },
+        logger: pino({ level: "warn" }),
+        browser: Browsers.windows("Chrome"),
+        printQRInTerminal: false,
+        markOnlineOnConnect: false,
+    });
+    sess.sock = sock;
+
+    sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+        if (sess.finished || sess.sock !== sock) return; // stale socket
+
+        if (qr) {
+            try {
+                sess.qr = await QRCode.toDataURL(qr, { margin: 2, width: 360 });
+                sess.resolveFirstQr?.();
+            } catch (e) {
+                console.error("QR generation error:", e);
+            }
+        }
+
+        if (connection === "open") {
+            if (sess.delivering) return;
+            sess.delivering = true;
+            sess.status = "connected";
+            try {
+                // sock.user.id is the real, confirmed identity after the scan
+                await deliverSession(sock, sess.dir);
+                sess.status = "done";
+            } catch (err) {
+                console.error("❌ Error in QR pairing process:", err);
+                sess.status = "error";
+                try {
+                    const jid = jidNormalizedUser(sock.user.id);
+                    await sock.sendMessage(jid, { text: "❌ Error generating session. Please try again." });
+                } catch (e) {
+                    console.error("[SESSION] Failed to even send the error notice:", e);
+                }
+            }
+            setTimeout(() => destroyQrSession(key), 1000);
+        }
+
+        if (connection === "close") {
+            if (sess.delivering) return; // we are closing it ourselves
+            const code = lastDisconnect?.error?.output?.statusCode;
+            console.log("[SESSION] QR connection closed, statusCode:", code);
+
+            if (code === DisconnectReason.loggedOut) {
+                destroyQrSession(key, "error");
+                return;
+            }
+            if (sess.restarts++ >= QR_MAX_RESTARTS) {
+                destroyQrSession(key, "expired");
+                return;
+            }
+            // 515 (restart required) right after a scan lands here too:
+            // reconnect with the saved credentials to finish the linking.
+            setTimeout(() => {
+                startQrSocket(key).catch((e) => {
+                    console.error("[QR] Restart failed:", e);
+                    destroyQrSession(key, "error");
+                });
+            }, 1000);
+        }
+    });
+}
+
+router.get("/", async (req, res) => {
+    const key = crypto.randomBytes(6).toString("hex");
+    const sess = {
+        key,
+        dir: "./sessionqr" + key,
+        qr: null,
+        status: "waiting",
+        restarts: 0,
+        finished: false,
+        delivering: false,
+        sock: null,
+    };
+    rm(sess.dir);
+    sess.firstQr = new Promise((resolve) => (sess.resolveFirstQr = resolve));
+    sess.lifeTimer = setTimeout(() => {
+        if (!sess.delivering) destroyQrSession(key, "expired");
+    }, QR_LIFETIME_MS);
+    qrSessions.set(key, sess);
+
+    try {
+        await startQrSocket(key);
+    } catch (e) {
+        console.error("[QR] Could not start socket:", e);
+        destroyQrSession(key, "error");
+        if (!res.headersSent) res.status(500).send({ code: "QR_FAIL", error: e.message });
+        return;
+    }
+
+    const got = await Promise.race([sess.firstQr.then(() => true), delay(20000).then(() => false)]);
+    if (!got || !sess.qr) {
+        destroyQrSession(key, "error");
+        if (!res.headersSent) {
+            res.status(408).send({ code: "QR_TIMEOUT", error: "QR code was not generated in time" });
+        }
+        return;
+    }
+
+    res.send({
+        key,
+        qr: sess.qr,
+        instructions: [
+            "Open WhatsApp on your phone",
+            "Tap Settings > Linked Devices",
+            "Tap 'Link a Device'",
+            "Scan this QR code",
+        ],
+    });
+});
+
+router.get("/status", (req, res) => {
+    const sess = qrSessions.get(String(req.query.key || ""));
+    if (!sess) return res.send({ status: "expired" });
+    res.send({ status: sess.status, qr: sess.status === "waiting" ? sess.qr : null });
+});
+
+router.get("/cancel", (req, res) => {
+    const key = String(req.query.key || "");
+    const sess = qrSessions.get(key);
+    if (sess && !sess.delivering && !sess.finished) destroyQrSession(key, "expired");
+    res.send({ ok: true });
+});
+
+/* ===== SAFETY ===== */
+process.on("uncaughtException", (err) => {
+    const e = String(err);
+    console.error("[uncaughtException]", e);
+    if (e.includes("conflict") || e.includes("not-authorized") || e.includes("Timed Out")) return;
+    console.error("Crash:", err);
+});
+
+process.on("unhandledRejection", (err) => {
+    console.error("Unhandled Rejection:", err);
+});
+
+export default router;
+
+//coded by EmmyFrosh
