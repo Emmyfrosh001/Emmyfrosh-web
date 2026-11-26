@@ -829,8 +829,6 @@
         opacity: 0; pointer-events: none; transition: 0.25s; z-index: 1000; max-width: calc(100% - 32px);
       }
       .dp-toast.show { opacity: 1; transform: translate(-50%, 0); }
-      .dp-error { text-align: center; padding: 26px 10px; font-size: 13px; color: var(--dp-sub); }
-      .dp-error button { all: unset; cursor: pointer; display: block; margin: 12px auto 0; padding: 9px 16px; border: 1px solid var(--dp-line-strong); border-radius: 8px; color: var(--dp-accent); font-weight: 600; }
       @media (prefers-reduced-motion: reduce) { .dp-body, .dp-chev-wrap, .dp-opt { transition: none; } .dp-opt.shake, .dp-skel { animation: none; } }
     </style>
   </head>
@@ -1016,7 +1014,7 @@
       </button>
       </section>
 
-      <!-- DEPLOY: Panel / Render / VPS (loaded live from the plugin admin) -->
+      <!-- DEPLOY: Panel / Render / VPS -->
       <section id="deploySection">
         <button class="back-btn" id="backHomeDeploy" type="button">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg> Back
@@ -1033,6 +1031,115 @@
       </div>
     </div>
 
+    <script type="text/plain" id="code-panel">const { execSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const config = {
+  SESSION_ID: '',
+  OWNER_NUMBER: '',
+  MODE: 'private',
+  PREFIX: '.',
+  TIME_ZONE: 'Africa/Lagos',
+  OWNER_NAME: 'Elijah',
+  BOT_NAME: 'EmmyFrosh'
+}
+
+function writeEnvFile(filePath) {
+  const envText = Object.entries(config)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+  fs.writeFileSync(filePath, envText)
+  console.log('.env written from config')
+}
+
+function moveFilesToRoot(srcDir, destDir) {
+  const files = fs.readdirSync(srcDir, { withFileTypes: true })
+  for (const file of files) {
+    const srcPath = path.join(srcDir, file.name)
+    const destPath = path.join(destDir, file.name)
+    if (fs.existsSync(destPath)) {
+      fs.rmSync(destPath, { recursive: true, force: true })
+    }
+    fs.renameSync(srcPath, destPath)
+  }
+}
+
+try {
+  const rootDir = process.cwd()
+  const tempDir = path.join(rootDir, 'temp-dir')
+  const envPath = path.join(rootDir, '.env')
+
+  if (!fs.existsSync(path.join(rootDir, 'main.js'))) {
+    console.log('Cloning EmmyFrosh-Ai...')
+    execSync('git clone https://github.com/Emmyfrosh001/EmmyFrosh-Ai temp-dir', { stdio: 'inherit' })
+    moveFilesToRoot(tempDir, rootDir)
+    fs.rmdirSync(tempDir, { recursive: true })
+    console.log('Installing dependencies...')
+    execSync('npm install', { stdio: 'inherit' })
+  } else {
+    console.log('Bot already cloned, skipping git clone and npm install.')
+  }
+
+  writeEnvFile(envPath)
+
+  console.log('Starting bot...')
+  execSync('npm start', { stdio: 'inherit' })
+} catch (err) {
+  console.error('Setup failed:', err.message)
+  process.exit(1)
+}</script>
+    <script type="text/plain" id="code-render">services:
+  - type: web
+    name: emmyfrosh-ai
+    runtime: node
+    plan: free
+    repo: https://github.com/Emmyfrosh001/EmmyFrosh-Ai
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SESSION_ID
+        sync: false
+      - key: OWNER_NUMBER
+        sync: false
+      - key: MODE
+        value: private
+      - key: PREFIX
+        value: "."
+      - key: TIME_ZONE
+        value: Africa/Lagos
+      - key: OWNER_NAME
+        value: Elijah
+      - key: BOT_NAME
+        value: EmmyFrosh</script>
+    <script type="text/plain" id="code-vps"># 1. Update the server and install git + Node.js 20
+sudo apt update && sudo apt install -y git curl
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 2. Get the bot
+git clone https://github.com/Emmyfrosh001/EmmyFrosh-Ai
+cd EmmyFrosh-Ai
+npm install
+
+# 3. Create your config (put your SESSION_ID and OWNER_NUMBER inside)
+cat > .env <<'ENV'
+SESSION_ID=
+OWNER_NUMBER=
+MODE=private
+PREFIX=.
+TIME_ZONE=Africa/Lagos
+OWNER_NAME=Elijah
+BOT_NAME=EmmyFrosh
+ENV
+nano .env
+
+# 4. Keep it running 24/7 with pm2
+sudo npm install -g pm2
+pm2 start npm --name emmyfrosh -- start
+pm2 save
+pm2 startup</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
     <script>
       // Suggestion page (edit this one line if the suggestion page ever moves)
@@ -1105,9 +1212,18 @@
       document.getElementById("backHome").addEventListener("click", showHome);
 
       // ── Deploy view ──
-      // Options (Panel / Render / VPS) load live from the plugin admin, so edits and locks
-      // you make there show up here. Nothing is stored in this page, so a locked option's code can never leak.
-      const DEPLOY_API = "https://plugin.emmyfrosh.name.ng/api/deploy";
+      // Options (Panel / Render / VPS). To change the code, edit the three <script id="code-..."> blocks near the bottom of this file.
+      const DP_ITEMS = [
+        { id: "panel", title: "Panel", subtitle: "hosting panel // index.js", filename: "index.js",
+          note: "Upload this as index.js on your hosting panel, fill in your SESSION_ID and OWNER_NUMBER, then start the server.",
+          code: document.getElementById("code-panel").textContent },
+        { id: "render", title: "Render", subtitle: "blueprint // one click", filename: "render.yaml",
+          note: "Fork the repo, add this render.yaml to the root, then on Render choose New \u2192 Blueprint and pick your fork. Add SESSION_ID and OWNER_NUMBER when asked.",
+          code: document.getElementById("code-render").textContent },
+        { id: "vps", title: "VPS", subtitle: "bare metal // full control", filename: "setup.sh",
+          note: "Run these commands on a fresh Ubuntu / Debian server, one block at a time.",
+          code: document.getElementById("code-vps").textContent },
+      ];
       const DP_ICONS = {
         panel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>',
         render: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9.5a4.75 4.75 0 0 1-.5 9.5z"/></svg>',
@@ -1186,24 +1302,10 @@
         if (inner) { if (open) inner.removeAttribute("inert"); else inner.setAttribute("inert", ""); }
       }
 
-      async function loadDeploy() {
+      function loadDeploy() {
         if (dpLoaded) return;
-        dpListEl.innerHTML = '<div class="dp-skel"></div><div class="dp-skel"></div><div class="dp-skel"></div>';
-        try {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 8000);
-          const res = await fetch(DEPLOY_API, { cache: "no-store", signal: ctrl.signal });
-          clearTimeout(timer);
-          if (!res.ok) throw new Error("status " + res.status);
-          const data = await res.json();
-          if (!Array.isArray(data) || !data.length) throw new Error("empty");
-          dpRender(data);
-          dpLoaded = true;
-        } catch (e) {
-          console.warn("Deploy options failed to load:", e.message);
-          dpListEl.innerHTML = '<div class="dp-error">Could not load deploy options.<button type="button" id="dpRetry">Try again</button></div>';
-          document.getElementById("dpRetry").addEventListener("click", loadDeploy);
-        }
+        dpRender(DP_ITEMS);
+        dpLoaded = true;
       }
 
       dpListEl.addEventListener("click", (e) => {
