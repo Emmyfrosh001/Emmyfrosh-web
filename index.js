@@ -27,6 +27,21 @@ app.use(cors({
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+/* 🔒 Never serve source code, secrets, saved data or session backups.
+   (express.static(__dirname) below publishes this whole folder, so these must be blocked first.) */
+app.use((req, res, next) => {
+  let p = "";
+  try { p = decodeURIComponent(req.path).toLowerCase(); } catch { return res.status(400).end(); }
+  if (
+    /^\/(backups|data|deploy-defaults|node_modules|\.git)(\/|$)/.test(p) ||
+    /\.(js|mjs|cjs|json|txt|md|yaml|yml|env|lock)$/.test(p) ||
+    p.includes("..")
+  ) {
+    return res.status(404).send("Not found");
+  }
+  next();
+});
+
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
