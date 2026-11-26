@@ -750,6 +750,88 @@
           display: none;
         }
       }
+    
+      /* ───────── Deploy view (Panel / Render / VPS) ───────── */
+      :root {
+        --dp-card: #101f42;
+        --dp-card-hover: #132349;
+        --dp-line: rgba(143, 199, 255, 0.2);
+        --dp-line-strong: rgba(143, 199, 255, 0.38);
+        --dp-accent: #8fc7ff;
+        --dp-sub: #8fa3cc;
+        --dp-code-bg: #0a1430;
+        --dp-code-txt: #cfe0ff;
+      }
+      :root[data-theme="light"] {
+        --dp-card: #eef4ff;
+        --dp-card-hover: #e4edff;
+        --dp-line: rgba(37, 99, 235, 0.22);
+        --dp-line-strong: rgba(37, 99, 235, 0.45);
+        --dp-accent: #2563eb;
+        --dp-sub: #5b6b8c;
+        --dp-code-bg: #f8faff;
+        --dp-code-txt: #1e2a4a;
+      }
+      #deploySection { display: none; }
+      #deploySection.visible { display: block; animation: fadeSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+      .dp-head { margin-bottom: 18px; }
+      .dp-head h2 { font-size: 24px; font-weight: 700; color: var(--text-color); letter-spacing: -0.01em; }
+      .dp-head p { margin-top: 4px; font-size: 12px; letter-spacing: 0.1em; color: var(--dp-sub); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .dp-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px; }
+      .dp-opt { background: var(--dp-card); border: 1px solid var(--dp-line); border-radius: 14px; transition: border-color 0.2s, background 0.2s; }
+      .dp-opt:hover, .dp-opt.open { border-color: var(--dp-line-strong); background: var(--dp-card-hover); }
+      .dp-opt-head {
+        all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 16px;
+        padding: 18px 18px; cursor: pointer; color: var(--text-color);
+      }
+      .dp-opt-head:focus-visible { outline: 2px solid var(--dp-accent); outline-offset: -2px; border-radius: 14px; }
+      .dp-ico { flex: none; width: 28px; height: 28px; color: var(--dp-accent); }
+      .dp-ico svg, .dp-chev { width: 100%; height: 100%; }
+      .dp-txt { flex: 1; min-width: 0; }
+      .dp-txt b { display: block; font-size: 18px; font-weight: 700; line-height: 1.2; }
+      .dp-txt span { display: block; margin-top: 4px; font-size: 11.5px; letter-spacing: 0.05em; color: var(--dp-sub); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .dp-opt.locked .dp-txt span { white-space: normal; }
+      .dp-chev-wrap { flex: none; width: 22px; height: 22px; color: var(--dp-sub); transition: transform 0.25s ease; }
+      .dp-opt.open .dp-chev-wrap { transform: rotate(180deg); }
+      .dp-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.28s ease; }
+      .dp-opt.open .dp-body { grid-template-rows: 1fr; }
+      .dp-body-inner { overflow: hidden; min-height: 0; }
+      .dp-pad { padding: 0 18px 18px; }
+      .dp-note { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--muted); white-space: pre-line; }
+      .dp-code-box { border: 1px solid var(--dp-line); border-radius: 10px; background: var(--dp-code-bg); overflow: hidden; }
+      .dp-code-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 7px 7px 12px; border-bottom: 1px solid var(--dp-line); }
+      .dp-fname { font-size: 12px; letter-spacing: 0.06em; color: var(--dp-sub); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dp-copy {
+        all: unset; box-sizing: border-box; flex: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 12px; border-radius: 8px; border: 1px solid var(--dp-line-strong); color: var(--dp-accent);
+        font-size: 12.5px; font-weight: 600; transition: background 0.2s;
+      }
+      .dp-copy:hover { background: rgba(143, 199, 255, 0.12); }
+      .dp-copy:focus-visible { outline: 2px solid var(--dp-accent); outline-offset: 2px; }
+      .dp-copy svg { width: 14px; height: 14px; }
+      .dp-copy.done { color: var(--success-color); border-color: var(--success-color); }
+      pre.dp-code {
+        margin: 0; padding: 14px 12px; max-height: 340px; overflow: auto; white-space: pre; tab-size: 2;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.65; color: var(--dp-code-txt);
+        -webkit-overflow-scrolling: touch;
+      }
+      .dp-lock-tag { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dp-sub); border: 1px solid var(--dp-line-strong); border-radius: 999px; padding: 4px 10px 4px 8px; }
+      .dp-lock-tag svg { width: 13px; height: 13px; }
+      .dp-opt.locked { opacity: 0.78; }
+      .dp-opt.locked .dp-opt-head { cursor: not-allowed; }
+      .dp-opt.shake { animation: dpShake 0.35s; }
+      @keyframes dpShake { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+      .dp-skel { height: 66px; border-radius: 14px; border: 1px solid var(--dp-line); background: var(--dp-card); opacity: 0.6; animation: dpPulse 1.2s ease-in-out infinite; }
+      @keyframes dpPulse { 50% { opacity: 0.25; } }
+      .dp-toast {
+        position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); background: var(--dp-card); color: var(--text-color);
+        border: 1px solid var(--dp-line-strong); font-size: 13px; padding: 10px 16px; border-radius: 10px;
+        opacity: 0; pointer-events: none; transition: 0.25s; z-index: 1000; max-width: calc(100% - 32px);
+      }
+      .dp-toast.show { opacity: 1; transform: translate(-50%, 0); }
+      .dp-error { text-align: center; padding: 26px 10px; font-size: 13px; color: var(--dp-sub); }
+      .dp-error button { all: unset; cursor: pointer; display: block; margin: 12px auto 0; padding: 9px 16px; border: 1px solid var(--dp-line-strong); border-radius: 8px; color: var(--dp-accent); font-weight: 600; }
+      @media (prefers-reduced-motion: reduce) { .dp-body, .dp-chev-wrap, .dp-opt { transition: none; } .dp-opt.shake, .dp-skel { animation: none; } }
     </style>
   </head>
   <body>
@@ -934,6 +1016,18 @@
       </button>
       </section>
 
+      <!-- DEPLOY: Panel / Render / VPS (loaded live from the plugin admin) -->
+      <section id="deploySection">
+        <button class="back-btn" id="backHomeDeploy" type="button">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg> Back
+        </button>
+        <div class="dp-head">
+          <h2>Deploy</h2>
+          <p>pick a host // copy // run</p>
+        </div>
+        <div class="dp-list" id="deployList" aria-live="polite"></div>
+      </section>
+
       <div class="footer">
         <p>Built by 𝛯𝛭𝛭𝑌𝐹𝑅𝛩𝑆𝛨 💔</p>
       </div>
@@ -995,12 +1089,14 @@
       // ── Home feature cards ──
       function showPairing() {
         document.getElementById("homeView").classList.add("hidden");
+        document.getElementById("deploySection").classList.remove("visible");
         document.getElementById("pairingSection").classList.add("visible");
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
       function showHome() {
         document.getElementById("pairingSection").classList.remove("visible");
+        document.getElementById("deploySection").classList.remove("visible");
         document.getElementById("homeView").classList.remove("hidden");
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -1008,11 +1104,147 @@
       document.getElementById("sessionCard").addEventListener("click", showPairing);
       document.getElementById("backHome").addEventListener("click", showHome);
 
-      document.getElementById("deployCard").addEventListener("click", () => {
-        alert(
-          "How to deploy:\n\n1. Fork the repo on GitHub\n2. Clone it to your server or host (Heroku, Render, VPS, etc.)\n3. Run npm install\n4. Set your environment variables\n5. Start the bot with npm start\n\nFull guide is in the GitHub README.",
-        );
+      // ── Deploy view ──
+      // Options (Panel / Render / VPS) load live from the plugin admin, so edits and locks
+      // you make there show up here. Nothing is stored in this page, so a locked option's code can never leak.
+      const DEPLOY_API = "https://plugin.emmyfrosh.name.ng/api/deploy";
+      const DP_ICONS = {
+        panel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>',
+        render: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9.5a4.75 4.75 0 0 1-.5 9.5z"/></svg>',
+        vps: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="7" rx="1.8"/><rect x="3" y="13.5" width="18" height="7" rx="1.8"/><path d="M7 7h.01M7 17h.01"/></svg>',
+      };
+      const DP_CHEV = '<svg class="dp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      const DP_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
+      const DP_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>';
+      const DP_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+      const dpListEl = document.getElementById("deployList");
+      const dpCode = {};
+      let dpToastTimer;
+      let dpLoaded = false;
+
+      function dpEsc(v) {
+        return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      }
+
+      function dpToast(msg) {
+        let t = document.getElementById("dpToast");
+        if (!t) {
+          t = document.createElement("div");
+          t.id = "dpToast";
+          t.className = "dp-toast";
+          t.setAttribute("role", "status");
+          document.body.appendChild(t);
+        }
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(dpToastTimer);
+        dpToastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+      }
+
+      function dpCopyText(text) {
+        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+        return new Promise((resolve, reject) => {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+          document.body.appendChild(ta);
+          ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+          let ok = false;
+          try { ok = document.execCommand("copy"); } catch (e) {}
+          document.body.removeChild(ta);
+          ok ? resolve() : reject(new Error("copy failed"));
+        });
+      }
+
+      function dpCard(o) {
+        const icon = '<span class="dp-ico">' + (DP_ICONS[o.id] || DP_ICONS.panel) + "</span>";
+        const text = '<span class="dp-txt"><b>' + dpEsc(o.title) + "</b><span>" + dpEsc(o.subtitle) + "</span></span>";
+        if (o.locked) {
+          return '<article class="dp-opt locked"><button class="dp-opt-head" type="button" aria-disabled="true" data-locked="1">' +
+            icon + text + '<span class="dp-lock-tag">' + DP_LOCK + "locked</span></button></article>";
+        }
+        dpCode[o.id] = o.code || "";
+        return '<article class="dp-opt" data-id="' + dpEsc(o.id) + '">' +
+          '<button class="dp-opt-head" type="button" aria-expanded="false">' + icon + text + '<span class="dp-chev-wrap">' + DP_CHEV + "</span></button>" +
+          '<div class="dp-body"><div class="dp-body-inner" inert><div class="dp-pad">' +
+          (o.note ? '<p class="dp-note">' + dpEsc(o.note) + "</p>" : "") +
+          '<div class="dp-code-box"><div class="dp-code-bar"><span class="dp-fname">' + dpEsc(o.filename || "code") + "</span>" +
+          '<button class="dp-copy" type="button" data-copy="' + dpEsc(o.id) + '">' + DP_COPY + "<span>Copy</span></button></div>" +
+          '<pre class="dp-code" tabindex="0"><code>' + dpEsc(o.code || "") + "</code></pre></div></div></div></div></article>";
+      }
+
+      function dpRender(items) {
+        dpListEl.innerHTML = items.map(dpCard).join("");
+      }
+
+      function dpSetOpen(card, open) {
+        card.classList.toggle("open", open);
+        card.querySelector(".dp-opt-head").setAttribute("aria-expanded", open ? "true" : "false");
+        const inner = card.querySelector(".dp-body-inner");
+        if (inner) { if (open) inner.removeAttribute("inert"); else inner.setAttribute("inert", ""); }
+      }
+
+      async function loadDeploy() {
+        if (dpLoaded) return;
+        dpListEl.innerHTML = '<div class="dp-skel"></div><div class="dp-skel"></div><div class="dp-skel"></div>';
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 8000);
+          const res = await fetch(DEPLOY_API, { cache: "no-store", signal: ctrl.signal });
+          clearTimeout(timer);
+          if (!res.ok) throw new Error("status " + res.status);
+          const data = await res.json();
+          if (!Array.isArray(data) || !data.length) throw new Error("empty");
+          dpRender(data);
+          dpLoaded = true;
+        } catch (e) {
+          console.warn("Deploy options failed to load:", e.message);
+          dpListEl.innerHTML = '<div class="dp-error">Could not load deploy options.<button type="button" id="dpRetry">Try again</button></div>';
+          document.getElementById("dpRetry").addEventListener("click", loadDeploy);
+        }
+      }
+
+      dpListEl.addEventListener("click", (e) => {
+        const copyBtn = e.target.closest("[data-copy]");
+        if (copyBtn) {
+          dpCopyText(dpCode[copyBtn.getAttribute("data-copy")] || "").then(() => {
+            copyBtn.classList.add("done");
+            copyBtn.firstElementChild.outerHTML = DP_CHECK;
+            copyBtn.querySelector("span").textContent = "Copied";
+            dpToast("Copied to clipboard");
+            setTimeout(() => {
+              copyBtn.classList.remove("done");
+              copyBtn.firstElementChild.outerHTML = DP_COPY;
+              copyBtn.querySelector("span").textContent = "Copy";
+            }, 1800);
+          }).catch(() => dpToast("Copy blocked \u2014 press and hold the code to copy"));
+          return;
+        }
+        const head = e.target.closest(".dp-opt-head");
+        if (!head) return;
+        const card = head.closest(".dp-opt");
+        if (head.getAttribute("data-locked")) {
+          card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake");
+          dpToast("This option is locked");
+          return;
+        }
+        const willOpen = !card.classList.contains("open");
+        dpListEl.querySelectorAll(".dp-opt.open").forEach((c) => { if (c !== card) dpSetOpen(c, false); });
+        dpSetOpen(card, willOpen);
       });
+
+      function showDeploy() {
+        document.getElementById("homeView").classList.add("hidden");
+        document.getElementById("pairingSection").classList.remove("visible");
+        document.getElementById("deploySection").classList.add("visible");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        loadDeploy();
+      }
+
+      document.getElementById("deployCard").addEventListener("click", showDeploy);
+      document.getElementById("backHomeDeploy").addEventListener("click", showHome);
 
       // ── Hamburger menu ──
       (function initMenu() {
